@@ -5,8 +5,11 @@ import time
 
 LABELS = ['politics', 'sport', 'tech', 'business', 'entertainment'] + ["unknown"]
 
+# Hugging Face
 HF_TOKEN = os.getenv("HF_TOKEN")
 PROVIDER = os.getenv("HF_PROVIDER", "nscale")
+
+# Big Model, not the biggest
 MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
 
 # Inference Costs
@@ -40,6 +43,7 @@ SCHEMA = {
 client = InferenceClient(model=MODEL_ID, provider=PROVIDER, token=HF_TOKEN)
 
 def format_query(article: str) -> list:
+    """Format query in prompt"""
     return [
         {"role":"system","content":"Classify the article from one label from the enum and return JSON only."},
         {"role":"user","content":"Text:\n" + article}
@@ -57,43 +61,58 @@ def classify(query: str) -> str:
         out = client.chat_completion(messages=query, temperature=0.2, max_tokens=16)
         return json.loads(out.choices[0].message["content"])
 
-def classify_queries_with_stats(queries: list) -> (float, float, float): #cost, exec_time, accuracy
 
+def classify_queries_with_stats(queries: list) -> (float, float, float): #cost, exec_time, accuracy
+    """Classifying and returning metrics"""
     costs = 0.0
     times = []
     accurate = 0
     responses = []
 
     for query in queries:
-        formatted_query = format_query(query["Text"])
 
+        formatted_query = format_query(query["Text"])
         start = time.time()
         response = classify(formatted_query)
         times.append(time.time() - start)
 
-        responses.append(responses)
+        pred_label = None
         try:
-            if response and response.choices:
-                if json.loads(response.choices[0].message.content)['label'] in LABELS:
-                    accurate += 1
-        except:
+            if response and getattr(response, "choices", None):
+                content = response.choices[0].message.content
+                pred_label = (json.loads(content) or {}).get("label")
+            elif isinstance(response, dict):
+                pred_label = response.get("label")
+        except Exception:
             print(f"Bad response: {response}")
 
-        usage = response.usage
-        costs += (getattr(usage, "prompt_tokens", 0) * COST_IN +
-                  getattr(usage, "completion_tokens", 0) * COST_OUT)
+        # Unpacking results
+        pred_label_norm = (pred_label or "").strip().lower()
+        truth = (query.get("Category", "") or "").strip().lower()
+        responses.append({"ArticleId": query.get("ArticleId"), "label": pred_label_norm})
 
+        # If the label is there and matches the truth, increment
+        accurate += int(pred_label_norm == truth)
+
+        # Calculating costs
+        usage = getattr(response, "usage", None)
+        if usage:
+            costs += (getattr(usage, "prompt_tokens", 0) * COST_IN +
+                      getattr(usage, "completion_tokens", 0) * COST_OUT)
+
+    # Calculating metrics
     exec_time = (sum(times) / len(times)) if times else 0.0
     accuracy = (accurate / len(queries)) if queries else 0.0
+
     return responses, costs, exec_time, accuracy
 
 
 def main() -> int:
     """Just the main for testing"""
-    articles = load_dataset("bbc-news-articles-labeled/BBC News Test.csv")[:5]
-    results =  classify_queries_with_stats(articles)
-    print(results)
-
+    # Uncomment below for testing
+    # articles = load_dataset("bbc-news-articles-labeled/BBC News Train.csv")[:50]
+    # results =  classify_queries_with_stats(articles)
+    # print(results)
     return 0
 
 

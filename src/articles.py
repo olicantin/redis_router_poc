@@ -29,7 +29,7 @@ def load_dataset(path: str, delimiter: str = ",") -> list:
 def load_dataset_per_category(path: str,) -> dict:
     """Load training dataset per category for training purposes."""
 
-    training_dataset = load_dataset(path)[0:500]
+    training_dataset = load_dataset(path)[0:1000] # Limit to 1000 for training
 
     articles_per_category = defaultdict(list) # category: [(article_id, text),]
     for article in training_dataset:
